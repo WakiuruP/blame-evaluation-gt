@@ -58,8 +58,20 @@
 (define (analyze-mutation/all-benchmarks! outdir mutation-analysis-config check-for-any-error?)
   (define analyses-outdir (build-path outdir "mutation-analyses"))
   (make-directory* analyses-outdir)
-  (for/list ([bench (in-list experiment-benchmarks)])
-    (analyze-mutation! bench analyses-outdir mutation-analysis-config check-for-any-error?)))
+  (define ch (make-channel))
+  (define thds
+    (parameterize ([cpus (quotient (cpus) (length experiment-benchmarks))])
+      (for/list ([bench (in-list experiment-benchmarks)])
+        (thread
+         (thunk
+          (channel-put ch (list bench (analyze-mutation! bench analyses-outdir mutation-analysis-config check-for-any-error?))))))))
+  (let loop ([results (hash)])
+    (if (= (hash-count results) (length experiment-benchmarks))
+        (for/list ([bench (in-list experiment-benchmarks)])
+          (hash-ref results bench))
+        (match (sync ch)
+          [(list bench res)
+           (loop (hash-set results bench res))]))))
 
 (define/racket-runner (analyze-mutation! bench-name outdir mutation-analysis-config check-for-any-error?)
   #:helper (define (outpath suffix)
